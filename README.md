@@ -95,22 +95,6 @@ That's it — paste those three values into the browser's connect screen and pre
 
 ---
 
-## Trying it without real credentials
-
-A demo storage service is bundled in `docker-compose.yml` for evaluation purposes only. After `docker compose up -d`, use these values:
-
-| Field        | Value                  |
-|--------------|------------------------|
-| Endpoint URL | `http://storage:9000`  |
-| Region       | `us-east-1`            |
-| Access key   | `stookadmin`           |
-| Secret key   | `stookadmin`           |
-| Path-style   | on                     |
-
-To run **only** the browser, without the demo service: `docker compose up -d app`.
-
----
-
 ## Under the hood
 
 - **Backend** — Node.js + Express + AWS SDK v3. Per-session S3 client keyed by an `HttpOnly` cookie. Path-style addressing (`forcePathStyle: true`) by default.

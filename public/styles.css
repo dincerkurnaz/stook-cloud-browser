@@ -268,6 +268,42 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 .workspace { flex: 1; display: flex; min-height: 0; min-width: 0; }
 .files-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
 
+/* Folder info / totals strip */
+.folder-info {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  height: 36px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.folder-info .stats-icon { color: var(--muted); flex-shrink: 0; }
+.folder-info .stats-text { color: var(--text); }
+.folder-info .stats-text b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.folder-info .stats-meta { color: var(--muted); font-size: 11.5px; }
+.folder-info .stats-spacer { flex: 1; }
+.folder-info .stats-refresh { width: 26px; height: 26px; color: var(--muted); }
+.folder-info .stats-refresh:hover { color: var(--text); }
+.folder-info .stats-refresh.spinning svg { animation: spin .9s linear infinite; }
+.folder-info .stats-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--muted-2);
+  flex-shrink: 0;
+}
+.folder-info .stats-dot.live {
+  background: var(--primary);
+  box-shadow: 0 0 0 0 var(--primary-ring);
+  animation: pulse 1.6s ease-out infinite;
+}
+.folder-info .stats-dot.error { background: var(--danger); }
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 var(--primary-ring); }
+  70% { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
 /* Selection bar */
 .selection-bar {
   display: flex; align-items: center; gap: 10px;

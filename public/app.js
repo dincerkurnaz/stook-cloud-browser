@@ -19,7 +19,10 @@ const state = {
   selection: new Set(),
   focusIndex: -1,
   visible: [],
+  stats: null,
 };
+
+let statsES = null;
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -111,6 +114,7 @@ async function fetchPage(reset) {
   if (state.loading) return;
   state.loading = true;
   renderStatus();
+  if (reset) loadStats();
   try {
     const params = new URLSearchParams({
       bucket: state.bucket,
@@ -380,6 +384,66 @@ function renderStatus() {
   el.textContent = `${state.items.length.toLocaleString()} item${state.items.length === 1 ? '' : 's'}`;
 }
 
+function loadStats() {
+  if (!state.bucket) return;
+  if (statsES) { try { statsES.close(); } catch {} statsES = null; }
+  state.stats = { count: 0, size: 0, status: 'loading' };
+  renderStats();
+  const url = `/api/stats?bucket=${encodeURIComponent(state.bucket)}&prefix=${encodeURIComponent(state.prefix)}`;
+  statsES = new EventSource(url, { withCredentials: true });
+  statsES.addEventListener('progress', (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      state.stats = { count: d.count, size: d.size, status: 'loading' };
+      renderStats();
+    } catch {}
+  });
+  statsES.addEventListener('done', (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      state.stats = { count: d.count, size: d.size, status: 'done', cached: d.cached, computedAt: d.computedAt };
+    } catch {
+      state.stats = { ...state.stats, status: 'done' };
+    }
+    renderStats();
+    if (statsES) { statsES.close(); statsES = null; }
+  });
+  statsES.addEventListener('error', () => {
+    state.stats = { ...(state.stats || { count: 0, size: 0 }), status: 'error' };
+    renderStats();
+    if (statsES) { statsES.close(); statsES = null; }
+  });
+}
+
+function renderStats() {
+  const bar = $('#folderInfo');
+  const s = state.stats;
+  if (!s || !state.bucket) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const dot = $('#statsDot');
+  dot.classList.toggle('live', s.status === 'loading');
+  dot.classList.toggle('error', s.status === 'error');
+  const text = $('#statsText');
+  const meta = $('#statsMeta');
+  const where = state.prefix ? `this folder` : `this bucket`;
+  if (s.status === 'loading') {
+    if (s.count === 0) text.textContent = `Calculating size of ${where}…`;
+    else text.innerHTML = `<b>${s.count.toLocaleString()}</b>+ files · <b>${fmtSize(s.size)}</b>+ <span style="color:var(--muted)">scanning…</span>`;
+    meta.textContent = '';
+  } else if (s.status === 'error') {
+    text.textContent = 'Could not compute totals';
+    meta.textContent = '';
+  } else {
+    const n = s.count;
+    text.innerHTML = `<b>${n.toLocaleString()}</b> file${n === 1 ? '' : 's'} · <b>${fmtSize(s.size)}</b> in ${where}`;
+    if (s.computedAt) {
+      const ago = Math.max(0, Math.round((Date.now() - s.computedAt) / 1000));
+      meta.textContent = s.cached ? `cached · ${ago}s ago` : '';
+    } else meta.textContent = '';
+  }
+  $('#statsRefresh').classList.toggle('spinning', s.status === 'loading');
+}
+
 function maybeLoadMore() {
   if (state.loading || !state.hasMore) return;
   const remaining = scrollEl.scrollHeight - (scrollEl.scrollTop + scrollEl.clientHeight);
@@ -456,6 +520,7 @@ async function deleteOne(item) {
     state.items = state.items.filter(i => i.key !== item.key);
     state.selection.delete(item.key);
     computeVisible(); renderList(); renderSelectionBar(); renderDetails();
+    loadStats();
     toast('Deleted');
   } catch (e) { toast(e.message); }
 }
@@ -474,6 +539,7 @@ async function bulkDelete() {
     state.items = state.items.filter(i => !keys.has(i.key));
     state.selection.clear();
     computeVisible(); renderList(); renderSelectionBar(); renderDetails();
+    loadStats();
     toast(`Deleted ${items.length}`);
   } catch (e) { toast(e.message); }
 }
@@ -678,6 +744,7 @@ function pumpUploads() {
   }
   if (uploadQueue.active === 0 && uploadQueue.queued.length === 0) {
     fetchPage(true);
+    loadStats();
   }
 }
 
@@ -890,6 +957,8 @@ function wire() {
 
   $('#detailsClose').onclick = () => { state.selection.clear(); renderVisibleRows(); renderSelectionBar(); renderDetails(); };
 
+  $('#statsRefresh').onclick = () => loadStats();
+
   setupDropzone();
   setupKeyboard();
 }
@@ -980,7 +1049,9 @@ function showConnectScreen() {
 
 async function disconnect() {
   await fetch('/api/disconnect', { method: 'POST', credentials: 'same-origin' });
+  if (statsES) { try { statsES.close(); } catch {} statsES = null; }
   state.bucket = null; state.prefix = ''; state.items = []; state.selection.clear();
+  state.stats = null; renderStats();
   if (scrollEl) viewportEl.innerHTML = '';
   showConnectScreen();
 }

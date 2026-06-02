@@ -33,6 +33,18 @@ const MAX_UPLOAD_SIZE = parseInt(process.env.MAX_UPLOAD_SIZE || String(5 * 1024 
 const RENAME_PARALLELISM = parseInt(process.env.RENAME_PARALLELISM || '16', 10);
 const COOKIE_NAME = 'sb_sid';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
+const STATS_TTL_MS = 1000 * 60 * 5;
+const statsCache = new Map(); // `${sid}:${bucket}:${prefix}` -> { count, size, expiresAt, computedAt }
+
+function statsKey(sid, bucket, prefix) { return `${sid || '_'}:${bucket}:${prefix}`; }
+function invalidateStats(sid, bucket) {
+  const pref = `${sid || '_'}:${bucket}:`;
+  for (const k of statsCache.keys()) if (k.startsWith(pref)) statsCache.delete(k);
+}
+function bustStats(req, bucket) {
+  const cookies = parseCookies(req);
+  invalidateStats(cookies[COOKIE_NAME], bucket);
+}
 
 const sessions = new Map(); // sid -> { client, info, expiresAt, bucketReady:Set }
 
@@ -263,6 +275,67 @@ app.post('/api/buckets', async (req, res) => {
   } catch (err) { safeError(res, err); }
 });
 
+app.get('/api/stats', async (req, res) => {
+  const bucket = req.query.bucket || req.session.info.defaultBucket;
+  if (!bucket) return res.status(400).json({ error: 'bucket required' });
+  const prefix = normalizePrefix(req.query.prefix || '');
+  const cookies = parseCookies(req);
+  const sid = cookies[COOKIE_NAME];
+  const cacheKey = statsKey(sid, bucket, prefix);
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (res.flushHeaders) res.flushHeaders();
+  const send = (event, data) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const cached = statsCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    send('done', { count: cached.count, size: cached.size, cached: true, computedAt: cached.computedAt });
+    return res.end();
+  }
+
+  let aborted = false;
+  req.on('close', () => { aborted = true; });
+  let count = 0, size = 0;
+  let lastFlush = Date.now();
+  try {
+    await ensureBucket(req, bucket);
+    let token;
+    do {
+      if (aborted) return;
+      const out = await req.s3.send(new ListObjectsV2Command({
+        Bucket: bucket, Prefix: prefix, ContinuationToken: token, MaxKeys: 1000,
+      }));
+      for (const o of out.Contents || []) {
+        if (o.Key === prefix) continue;
+        if (o.Key.endsWith('/')) continue;
+        count++;
+        size += o.Size || 0;
+      }
+      if (Date.now() - lastFlush > 120) {
+        send('progress', { count, size });
+        lastFlush = Date.now();
+      }
+      token = out.IsTruncated ? out.NextContinuationToken : undefined;
+    } while (token);
+    if (aborted) return;
+    const computedAt = Date.now();
+    statsCache.set(cacheKey, { count, size, expiresAt: computedAt + STATS_TTL_MS, computedAt });
+    send('done', { count, size, cached: false, computedAt });
+    res.end();
+  } catch (err) {
+    if (!aborted) {
+      send('error', { message: err.message || String(err) });
+      res.end();
+    }
+  }
+});
+
 app.get('/api/list', async (req, res) => {
   const bucket = req.query.bucket || req.session.info.defaultBucket;
   if (!bucket) return res.status(400).json({ error: 'bucket required' });
@@ -298,6 +371,7 @@ app.post('/api/folder', async (req, res) => {
     await ensureBucket(req, bucket);
     const key = normalizePrefix(prefix) + name + '/';
     await req.s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: '', ContentType: 'application/x-directory' }));
+    bustStats(req, bucket);
     res.json({ ok: true, key });
   } catch (err) { safeError(res, err); }
 });
@@ -329,6 +403,7 @@ app.post('/api/upload', async (req, res) => {
     try {
       await Promise.all(pending);
       if (aborted) throw new Error('Upload aborted');
+      bustStats(req, bucket);
       res.json({ ok: true, uploaded });
     } catch (err) { safeError(res, err); }
   });
@@ -369,6 +444,7 @@ app.delete('/api/object', async (req, res) => {
   try {
     if (key.endsWith('/')) await deletePrefix(req.s3, bucket, key);
     else await req.s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    bustStats(req, bucket);
     res.json({ ok: true });
   } catch (err) { safeError(res, err); }
 });
@@ -393,6 +469,7 @@ app.delete('/api/objects', async (req, res) => {
       const batch = flat.slice(i, i + 1000).map((Key) => ({ Key }));
       await req.s3.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: batch, Quiet: true } }));
     }
+    bustStats(req, bucket);
     res.json({ ok: true, deleted: flat.length });
   } catch (err) { safeError(res, err); }
 });
@@ -432,6 +509,7 @@ app.post('/api/rename', async (req, res) => {
       await req.s3.send(new CopyObjectCommand({ Bucket: bucket, CopySource: copySource(bucket, from), Key: to }));
       await req.s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: from }));
     }
+    bustStats(req, bucket);
     res.json({ ok: true });
   } catch (err) { safeError(res, err); }
 });

@@ -1,0 +1,21 @@
+{
+  "name": "simple-s3-browser",
+  "version": "1.0.0",
+  "description": "A Dropbox-style, end-user friendly browser for Amazon S3 / MinIO (path-style)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.637.0",
+    "@aws-sdk/lib-storage": "^3.637.0",
+    "@aws-sdk/s3-request-presigner": "^3.637.0",
+    "busboy": "^1.6.0",
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

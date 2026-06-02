@@ -1,0 +1,35 @@
+services:
+  app:
+    build: .
+    container_name: stook-browser
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      AUTO_CREATE_BUCKET: "false"
+    volumes:
+      - ./public:/app/public:ro
+    restart: unless-stopped
+
+  # Local S3-compatible storage bundled for demo / development only.
+  # Point the connect screen at:
+  #   Endpoint:   http://storage:9000
+  #   Access key: stookadmin
+  #   Secret key: stookadmin
+  #   Region:     us-east-1   (path-style ON)
+  storage:
+    image: minio/minio:latest
+    container_name: stook-demo-storage
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9101:9001"
+    environment:
+      MINIO_ROOT_USER: stookadmin
+      MINIO_ROOT_PASSWORD: stookadmin
+    volumes:
+      - storage-data:/data
+    restart: unless-stopped
+
+volumes:
+  storage-data:

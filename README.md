@@ -1,5 +1,7 @@
 # Stook · Cloud Storage Browser
 
+Demo: <https://stook-cloud-browser.vercel.app/>
+
 A modern, end-user-friendly web browser for [**Stook Cloud Object Storage**](https://www.medianova.com/product/stook-cloud-storage/) — Medianova's fast, secure, and scalable S3-compatible object storage.
 
 > *Stook: Cloud Object Storage — A fast, secure, and scalable cloud object storage solution by Medianova.*
